@@ -326,6 +326,13 @@ class Jiraclient(object):
       default=None,
     )
     optParser.add_option(
+      "-e","--targetEnvironment",
+      action="store",
+      dest="target_environment",
+      help="Jira target environment",
+      default=None,
+    )
+    optParser.add_option(
       "-F","--fixVersions",
       action="store",
       dest="fixVersions",
@@ -736,6 +743,7 @@ class Jiraclient(object):
   def create_issue(self,issueObj):
     issue = self.clean_issue(issueObj)
     payload = json.dumps({"fields":issue})
+    #self.logger.info("DDK>>>>>>>>>>> Create Issue Payload: %s" % payload)
     uri = 'rest/api/latest/issue'
     newissue = self.call_api('post',uri,payload=payload)
     issueID = "NOOP"
@@ -887,6 +895,9 @@ class Jiraclient(object):
       setattr(issue,attribute,value)
       return issue
 
+    #DDK if attribute == 'target environment':
+      #DDK self.logger.debug("DDK>>>>> Found target environment attribute (%s) attribute (%s) value (%s)" % (issue,attribute,value))
+
     itype = issue.issuetype['id']
     if itype in self.maps['customfields'].keys() and attribute in self.maps['customfields'][itype].values():
       if attribute == 'epic/theme':
@@ -894,6 +905,9 @@ class Jiraclient(object):
       if attribute == 'epic link':
         setattr(issue,self.maps['customfields'][itype].find_key(str(attribute)),value)
       if attribute == 'epic name':
+        setattr(issue,self.maps['customfields'][itype].find_key(str(attribute)),value)
+      if attribute == 'target environment':
+        self.logger.debug("DDK>>>>> Found target environment attribute here too")
         setattr(issue,self.maps['customfields'][itype].find_key(str(attribute)),value)
       return issue
 
@@ -1090,8 +1104,9 @@ class Jiraclient(object):
       self.fatal("Issue must have a project")
     if not issue.issuetype:
       self.fatal("Issue must have an issuetype")
-    if issue.parent["key"] is not None and issue.issuetype['id'] != str(self.maps['issuetype'].find_key("sub-task")):
-      self.fatal("Issue type must be sub-task for --parent to be valid")
+    #if issue.parent["key"] is not None and issue.issuetype['id'] != str(self.maps['issuetype'].find_key("sub-task")):
+    if issue.parent["key"] is not None and issue.issuetype['id'] != str(self.maps['issuetype'].find_key("RFD-subtask")):
+      self.fatal("Issue type must be RFD-subtask for --parent to be valid")
 
     # Set Epic attributes via customfield
     if self.options.epic_theme and issue.issuetype['id'] is not None and \
@@ -1102,6 +1117,13 @@ class Jiraclient(object):
      self.maps['customfields'][issue.issuetype['id']].find_key('epic name'):
       attr = self.maps['customfields'][issue.issuetype['id']].find_key('epic name')
       setattr(issue,self.maps['customfields'][issue.issuetype['id']].find_key('epic name'),self.options.epic_name)
+
+    # Set NRS Custom fields
+    # Set Epic attributes via customfield
+    if self.options.target_environment and issue.issuetype['id'] is not None and \
+     self.maps['customfields'][issue.issuetype['id']].find_value('target environment') is not None:
+      attr = self.maps['customfields'][issue.issuetype['id']].find_value('target environment')
+      setattr(issue,attr,[self.options.target_environment])
 
     return issue
 
@@ -1185,7 +1207,8 @@ class Jiraclient(object):
     self.logger.debug("Set subtask link: %s -> %s" % (parent,child))
     self.link_issues(parent,'jira_subtask_link',child)
     # Change issue type to subtask and set parent attribute on child issue
-    issue = self.create_issue_obj(empty=True,issuetype='sub-task')
+    #issue = self.create_issue_obj(empty=True,issuetype='sub-task')
+    issue = self.create_issue_obj(empty=True,issuetype='RFD-subtask')
     issue = self.update_issue_obj(issue,'parent',parent)
     self.modify_issue(child,issue)
 
@@ -1214,99 +1237,216 @@ class Jiraclient(object):
     except Exception,details:
       self.fatal("Failed to parse YAML template: %s" % details)
 
-    stories = None
+    #stories = None
+    #if yamldata.has_key('stories'):
+    #  stories = yamldata.pop('stories')
     subtasks = None
-    if yamldata.has_key('stories'):
-      stories = yamldata.pop('stories')
     if yamldata.has_key('subtasks'):
       subtasks = yamldata.pop('subtasks')
 
     # Should we use the rc file for issue defaults?
     defaults = not self.options.norcfile
 
-    # First create the "Epic", which might be an actual Epic or some custom
-    # issue type that is a duplicate of an Epic.  Create this Epic first so we
-    # can use its Key as epic_theme/epic_link in other issues.
-    issuetype = 'epic'
+    # First create the "Parent Issue".
+    # Create this Issue first so we
+    # can use its Key as  in other issues.
+    issuetype = 'RFD'
     # The sub type is the Issue type for project milestones.
-    subtype = 'story'
-    if 'type' in yamldata.keys():
-      issuetype = yamldata.pop('type').lower()
-    if 'subtype' in yamldata.keys():
-      subtype = yamldata.pop('subtype').lower()
+    #subtype = 'Sub-task'
+    subtype = 'RFD-subtask'
+    # if 'type' in yamldata.keys():
+    #   issuetype = yamldata.pop('type').lower()
+    # if 'subtype' in yamldata.keys():
+    #   subtype = yamldata.pop('subtype').lower()
 
-    epic = self.create_issue_obj(defaults=defaults,issuetype=issuetype)
+    rfd = self.create_issue_obj(defaults=defaults,issuetype=issuetype)
     for (k,v) in yamldata.items():
-      epic = self.update_issue_obj(epic,k,v)
-    eid = self.create_issue(epic)
+      rfd = self.update_issue_obj(rfd,k,v)
+    rfdid = self.create_issue(rfd)
 
     # Modify the epic we just created to set its own theme
-    self.modify_issue(eid,{self.maps['customfields'][epic.issuetype['id']].find_key('epic/theme'):[eid]})
+    #self.modify_issue(eid,{self.maps['customfields'][epic.issuetype['id']].find_key('epic/theme'):[eid]})
     # Update the epic issue object so that epic/theme is inherited for tasks we're about to create
-    epic = self.update_issue_obj(epic,self.maps['customfields'][epic.issuetype['id']].find_key('epic/theme'),[eid])
+    #epic = self.update_issue_obj(epic,self.maps['customfields'][epic.issuetype['id']].find_key('epic/theme'),[eid])
 
     # create subtasks for eid, inheriting from epic
     if subtasks:
       idlist = []
       for subtask in subtasks:
-        self.logger.debug("create subtask inheriting from epic")
-        issue = self.create_issue_obj(defaults=defaults,issuetype='sub-task')
-        for (k,v) in epic.__dict__.items():
-          if k in ('description','summary','issuetype') or (k.startswith('customfield') and \
-                  k != self.maps['customfields'][epic.issuetype['id']].find_key('epic/theme') and \
-                  k != self.maps['customfields'][epic.issuetype['id']].find_key('epic link')): continue
-          issue = self.update_issue_obj(issue,k,v)
+        self.logger.debug("create subtask inheriting from issue")
+        #rfdsubtask = self.create_issue_obj(defaults=defaults,issuetype='Sub-task')
+        rfdsubtask = self.create_issue_obj(defaults=defaults,issuetype='RFD-subtask')
+        for (k,v) in rfdsubtask.__dict__.items():
+          self.logger.debug(">>>>>>>>>>>>>>>>>>DDK SUBTASK: KEY is: %s for VALUE: %s " % (k,v))
+          #if k in ('description','summary','issuetype') or (k.startswith('customfield') and k != self.maps['customfields'][epic.issuetype['id']].find_key('epic/theme') and k != self.maps['customfields'][epic.issuetype['id']].find_key('epic link')): continue
+          #if k in ('summary','description','issuetype') or (k.startswith('customfield') and k == self.maps['customfields'][rfd.issuetype['RFD-subtask']].find_key('target environment')): continue
+          #if k.startswith('customfield') and k == self.maps['customfields'][rfd.issuetype['RFD-subtask']].find_key('target environment'):
+            #self.logger.debug(">>>>>>>>>>>>>>>>>>DDK: DEBUG the key is: %s from map" % (k))
+          if k in ('summary','description','issuetype'): continue
+          rfdsubtask = self.update_issue_obj(rfdsubtask,k,v)
         for (k,v) in subtask.items():
-          issue = self.update_issue_obj(issue,k,v)
-        issue = self.update_issue_obj(issue,'parent',eid)
-        stid = self.create_issue(issue)
+          rfdsubtask = self.update_issue_obj(rfdsubtask,k,v)
+        rfdsubtask = self.update_issue_obj(rfdsubtask,'parent',rfdid)
+        stid = self.create_issue(rfdsubtask)
         idlist.append(stid)
 
       # We use the word 'epic' a lot, but we might have made a story with subtasks.
-      if issuetype == 'epic':
-        self.epic_link(idlist,eid)
+      #if issuetype == 'epic':
+      #  self.epic_link(idlist,eid)
 
     # create stories for eid, inheriting from epic
-    if stories:
-      idlist = []
-      for story in stories:
-        subtasks = None
-        if story.has_key('subtasks'):
-          subtasks = story.pop('subtasks')
+    # if stories:
+    #   idlist = []
+    #   for story in stories:
+    #     subtasks = None
+    #     if story.has_key('subtasks'):
+    #       subtasks = story.pop('subtasks')
 
-        self.logger.debug("create story inheriting from epic")
-        issue = self.create_issue_obj(defaults=defaults,issuetype=subtype)
-        for (k,v) in epic.__dict__.items():
-          if k in ('description','summary','issuetype') or (k.startswith('customfield') and \
-                  k != self.maps['customfields'][epic.issuetype['id']].find_key('epic/theme') and \
-                  k != self.maps['customfields'][epic.issuetype['id']].find_key('epic link')): continue
-          issue = self.update_issue_obj(issue,k,v)
-        for (k,v) in story.items():
-          issue = self.update_issue_obj(issue,k,v)
-        sid = self.create_issue(issue)
-        idlist.append(sid)
+#         self.logger.debug("create story inheriting from epic")
+#         issue = self.create_issue_obj(defaults=defaults,issuetype=subtype)
+#         for (k,v) in epic.__dict__.items():
+#           if k in ('description','summary','issuetype') or (k.startswith('customfield') and \
+#                   k != self.maps['customfields'][epic.issuetype['id']].find_key('epic/theme') and \
+#                   k != self.maps['customfields'][epic.issuetype['id']].find_key('epic link')): continue
+#           issue = self.update_issue_obj(issue,k,v)
+#         for (k,v) in story.items():
+#           issue = self.update_issue_obj(issue,k,v)
+#         sid = self.create_issue(issue)
+#         idlist.append(sid)
 
-        if subtasks:
-          # create subtasks for stories of epic, inheriting from epic
-          for subtask in subtasks:
-            self.logger.debug("create story subtask inheriting from epic")
-            issue = self.create_issue_obj(defaults=defaults,issuetype='sub-task')
-            for (k,v) in epic.__dict__.items():
-              if k in ('description','summary','issuetype') or (k.startswith('customfield') and \
-                  k != self.maps['customfields'][epic.issuetype['id']].find_key('epic/theme') and \
-                  k != self.maps['customfields'][epic.issuetype['id']].find_key('epic link')): continue
-              issue = self.update_issue_obj(issue,k,v)
-            for (k,v) in subtask.items():
-              issue = self.update_issue_obj(issue,k,v)
-            issue = self.update_issue_obj(issue,'parent',sid)
-            stid = self.create_issue(issue)
-            idlist.append(stid)
+#         if subtasks:
+#           # create subtasks for stories of epic, inheriting from epic
+#           for subtask in subtasks:
+#             self.logger.debug("create story subtask inheriting from epic")
+#             issue = self.create_issue_obj(defaults=defaults,issuetype='sub-task')
+#             for (k,v) in epic.__dict__.items():
+#               if k in ('description','summary','issuetype') or (k.startswith('customfield') and \
+#                   k != self.maps['customfields'][epic.issuetype['id']].find_key('epic/theme') and \
+#                   k != self.maps['customfields'][epic.issuetype['id']].find_key('epic link')): continue
+#               issue = self.update_issue_obj(issue,k,v)
+#             for (k,v) in subtask.items():
+#               issue = self.update_issue_obj(issue,k,v)
+#             issue = self.update_issue_obj(issue,'parent',sid)
+#             stid = self.create_issue(issue)
+#             idlist.append(stid)
 
       # We use the word 'epic' a lot, but we might have made a story with subtasks.
-      if issuetype == 'epic':
-        self.epic_link(idlist,eid)
+      # if issuetype == 'epic':
+      #   self.epic_link(idlist,eid)
 
-    self.logger.info("Created issue %s/browse/%s" % (self.get_serverinfo()['baseUrl'], eid))
+    self.logger.info("Created issue %s/browse/%s" % (self.get_serverinfo()['baseUrl'], rfdid))
+
+
+  # def create_issues_from_template_orig(self):
+  #   import yaml
+  #   self.logger.debug("Create issues from template")
+
+  #   if not self.options.template == "-" and not os.path.exists(self.options.template):
+  #     self.fatal("No such file: %s" % self.options.template)
+
+  #   # This isn't "real" recursion because as we get deeper the thing we represent
+  #   # goes from Epic to Story to Subtask, which are different datatypes in Jira.
+  #   try:
+  #     if self.options.template == "-":
+  #       yamldata = yaml.load(sys.stdin)
+  #     else:
+  #       yamldata = yaml.load(file(self.options.template,"r"))
+  #   except Exception,details:
+  #     self.fatal("Failed to parse YAML template: %s" % details)
+
+  #   stories = None
+  #   subtasks = None
+  #   if yamldata.has_key('stories'):
+  #     stories = yamldata.pop('stories')
+  #   if yamldata.has_key('subtasks'):
+  #     subtasks = yamldata.pop('subtasks')
+
+  #   # Should we use the rc file for issue defaults?
+  #   defaults = not self.options.norcfile
+
+  #   # First create the "Epic", which might be an actual Epic or some custom
+  #   # issue type that is a duplicate of an Epic.  Create this Epic first so we
+  #   # can use its Key as epic_theme/epic_link in other issues.
+  #   issuetype = 'epic'
+  #   # The sub type is the Issue type for project milestones.
+  #   subtype = 'story'
+  #   if 'type' in yamldata.keys():
+  #     issuetype = yamldata.pop('type').lower()
+  #   if 'subtype' in yamldata.keys():
+  #     subtype = yamldata.pop('subtype').lower()
+
+  #   epic = self.create_issue_obj(defaults=defaults,issuetype=issuetype)
+  #   for (k,v) in yamldata.items():
+  #     epic = self.update_issue_obj(epic,k,v)
+  #   eid = self.create_issue(epic)
+
+  #   # Modify the epic we just created to set its own theme
+  #   self.modify_issue(eid,{self.maps['customfields'][epic.issuetype['id']].find_key('epic/theme'):[eid]})
+  #   # Update the epic issue object so that epic/theme is inherited for tasks we're about to create
+  #   epic = self.update_issue_obj(epic,self.maps['customfields'][epic.issuetype['id']].find_key('epic/theme'),[eid])
+
+  #   # create subtasks for eid, inheriting from epic
+  #   if subtasks:
+  #     idlist = []
+  #     for subtask in subtasks:
+  #       self.logger.debug("create subtask inheriting from epic")
+  #       issue = self.create_issue_obj(defaults=defaults,issuetype='sub-task')
+  #       for (k,v) in epic.__dict__.items():
+  #         if k in ('description','summary','issuetype') or (k.startswith('customfield') and \
+  #                 k != self.maps['customfields'][epic.issuetype['id']].find_key('epic/theme') and \
+  #                 k != self.maps['customfields'][epic.issuetype['id']].find_key('epic link')): continue
+  #         issue = self.update_issue_obj(issue,k,v)
+  #       for (k,v) in subtask.items():
+  #         issue = self.update_issue_obj(issue,k,v)
+  #       issue = self.update_issue_obj(issue,'parent',eid)
+  #       stid = self.create_issue(issue)
+  #       idlist.append(stid)
+
+  #     # We use the word 'epic' a lot, but we might have made a story with subtasks.
+  #     if issuetype == 'epic':
+  #       self.epic_link(idlist,eid)
+
+  #   # create stories for eid, inheriting from epic
+  #   if stories:
+  #     idlist = []
+  #     for story in stories:
+  #       subtasks = None
+  #       if story.has_key('subtasks'):
+  #         subtasks = story.pop('subtasks')
+
+  #       self.logger.debug("create story inheriting from epic")
+  #       issue = self.create_issue_obj(defaults=defaults,issuetype=subtype)
+  #       for (k,v) in epic.__dict__.items():
+  #         if k in ('description','summary','issuetype') or (k.startswith('customfield') and \
+  #                 k != self.maps['customfields'][epic.issuetype['id']].find_key('epic/theme') and \
+  #                 k != self.maps['customfields'][epic.issuetype['id']].find_key('epic link')): continue
+  #         issue = self.update_issue_obj(issue,k,v)
+  #       for (k,v) in story.items():
+  #         issue = self.update_issue_obj(issue,k,v)
+  #       sid = self.create_issue(issue)
+  #       idlist.append(sid)
+
+  #       if subtasks:
+  #         # create subtasks for stories of epic, inheriting from epic
+  #         for subtask in subtasks:
+  #           self.logger.debug("create story subtask inheriting from epic")
+  #           issue = self.create_issue_obj(defaults=defaults,issuetype='sub-task')
+  #           for (k,v) in epic.__dict__.items():
+  #             if k in ('description','summary','issuetype') or (k.startswith('customfield') and \
+  #                 k != self.maps['customfields'][epic.issuetype['id']].find_key('epic/theme') and \
+  #                 k != self.maps['customfields'][epic.issuetype['id']].find_key('epic link')): continue
+  #             issue = self.update_issue_obj(issue,k,v)
+  #           for (k,v) in subtask.items():
+  #             issue = self.update_issue_obj(issue,k,v)
+  #           issue = self.update_issue_obj(issue,'parent',sid)
+  #           stid = self.create_issue(issue)
+  #           idlist.append(stid)
+
+  #     # We use the word 'epic' a lot, but we might have made a story with subtasks.
+  #     if issuetype == 'epic':
+  #       self.epic_link(idlist,eid)
+
+  #   self.logger.info("Created issue %s/browse/%s" % (self.get_serverinfo()['baseUrl'], eid))
 
   def act_on_existing_issue(self):
 

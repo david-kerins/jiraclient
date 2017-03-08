@@ -1,0 +1,35 @@
+dkerins@WIN-V2KC7RMS5OL Z:\jira-api\jiraclient
+> which pip
+C:\Python36\Scripts\pip.EXE
+
+dkerins@WIN-V2KC7RMS5OL Z:\jira-api\jiraclient
+> which pip2
+C:\Python27\Scripts\pip2.EXE
+
+dkerins@WIN-V2KC7RMS5OL Z:\jira-api\jiraclient
+> pip2 install -e .
+
+Dependency http-parser may get a error.  Install MS libs.
+error: Microsoft Visual C++ 9.0 is required. Get it from http://aka.ms/vcpython27
+
+> pip2 install -e .
+Obtaining file:///Z:/jira-api/jiraclient
+Collecting restkit (from jiraclient==2.1.8)
+  Using cached restkit-4.2.2.tar.gz
+Collecting PyYAML (from jiraclient==2.1.8)
+  Using cached PyYAML-3.12-cp27-cp27m-win_amd64.whl
+Collecting http-parser>=0.8.3 (from restkit->jiraclient==2.1.8)
+  Using cached http-parser-0.8.3.tar.gz
+Collecting socketpool>=0.5.3 (from restkit->jiraclient==2.1.8)
+  Using cached socketpool-0.5.3.tar.gz
+Installing collected packages: http-parser, socketpool, restkit, PyYAML, jiraclient
+  Running setup.py install for http-parser ... done
+  Running setup.py install for socketpool ... done
+  Running setup.py install for restkit ... done
+  Running setup.py develop for jiraclient
+Successfully installed PyYAML-3.12 http-parser-0.8.3 jiraclient restkit-4.2.2 socketpool-0.5.3
+
+dkerins@WIN-V2KC7RMS5OL Z:\jira-api\jiraclient
+> where jiraclient
+C:\Python27\Scripts\jiraclient
+
